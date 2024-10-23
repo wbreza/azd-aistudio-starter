@@ -1,38 +1,44 @@
+import { OptionalResource } from 'br:acrazdbicep.azurecr.io/bicep/types/common:v1'
+
 param location string = resourceGroup().location
 param tags object = {}
 
-@description('Name of the key vault')
-param keyVaultName string
-@description('Name of the storage account')
-param storageAccountName string
-@description('Name of the OpenAI cognitive services')
-param openAiName string
+param aiService OptionalResource
+param keyVault OptionalResource
+param storageAccount OptionalResource
+param applicationInsights OptionalResource
+param searchService OptionalResource
+param containerRegistry OptionalResource
+param logAnalytics OptionalResource
+
 @description('Array of OpenAI model deployments')
 param openAiModelDeployments array = []
-@description('Name of the Log Analytics workspace')
-param logAnalyticsName string = ''
-@description('Name of the Application Insights instance')
-param applicationInsightsName string = ''
-@description('Name of the container registry')
-param containerRegistryName string = ''
-@description('Name of the Azure Cognitive Search service')
-param searchServiceName string = ''
 
-module keyVault '../security/keyvault.bicep' = {
+resource existingKeyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' existing = if (keyVault.exists) {
+  name: keyVault.name
+  scope: resourceGroup(keyVault.subscriptionId, keyVault.resourceGroup)
+}
+
+module newKeyVault '../security/keyvault.bicep' = if (!keyVault.exists) {
   name: 'keyvault'
   params: {
     location: location
     tags: tags
-    name: keyVaultName
+    name: keyVault.name
   }
 }
 
-module storageAccount '../storage/storage-account.bicep' = {
+resource existingStorageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = if (storageAccount.exists) {
+  name: storageAccount.name
+  scope: resourceGroup(storageAccount.subscriptionId, storageAccount.resourceGroup)
+}
+
+module newStorageAccount '../storage/storage-account.bicep' = if (!storageAccount.exists) {
   name: 'storageAccount'
   params: {
     location: location
     tags: tags
-    name: storageAccountName
+    name: storageAccount.name
     containers: [
       {
         name: 'default'
@@ -93,78 +99,111 @@ module storageAccount '../storage/storage-account.bicep' = {
   }
 }
 
-module logAnalytics '../monitor/loganalytics.bicep' =
-  if (!empty(logAnalyticsName)) {
-    name: 'logAnalytics'
-    params: {
-      location: location
-      tags: tags
-      name: logAnalyticsName
-    }
-  }
+resource existingLogAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = if (logAnalytics.exists) {
+  name: logAnalytics.name
+  scope: resourceGroup(logAnalytics.subscriptionId, logAnalytics.resourceGroup)
+}
 
-module applicationInsights '../monitor/applicationinsights.bicep' =
-  if (!empty(applicationInsightsName) && !empty(logAnalyticsName)) {
-    name: 'applicationInsights'
-    params: {
-      location: location
-      tags: tags
-      name: applicationInsightsName
-      logAnalyticsWorkspaceId: !empty(logAnalyticsName) ? logAnalytics.outputs.id : ''
-    }
+module newLogAnalytics '../monitor/loganalytics.bicep' = if (!logAnalytics.exists) {
+  name: 'logAnalytics'
+  params: {
+    location: location
+    tags: tags
+    name: logAnalytics.name
   }
+}
 
-module containerRegistry '../host/container-registry.bicep' =
-  if (!empty(containerRegistryName)) {
-    name: 'containerRegistry'
-    params: {
-      location: location
-      tags: tags
-      name: containerRegistryName
-    }
+resource existingApplicationInsights 'Microsoft.Insights/components@2020-02-02' existing = if (applicationInsights.exists) {
+  name: existingLogAnalytics.name
+  scope: resourceGroup(applicationInsights.subscriptionId, applicationInsights.resourceGroup)
+}
+
+module newApplicationInsights '../monitor/applicationinsights.bicep' = if (!applicationInsights.exists){
+  name: 'applicationInsights'
+  params: {
+    location: location
+    tags: tags
+    name: applicationInsights.name
+    logAnalyticsWorkspaceId: logAnalytics.exists ? existingLogAnalytics.id : newLogAnalytics.outputs.id
   }
+}
 
-module cognitiveServices '../ai/cognitiveservices.bicep' = {
+resource existingContainerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = if (containerRegistry.exists) {
+  name: containerRegistry.name
+  scope: resourceGroup(containerRegistry.subscriptionId, containerRegistry.resourceGroup)
+}
+
+module newContainerRegistry '../host/container-registry.bicep' = if (!containerRegistry.exists) {
+  name: 'containerRegistry'
+  params: {
+    location: location
+    tags: tags
+    name: containerRegistry.name
+  }
+}
+
+resource existingCognitiveServices 'Microsoft.CognitiveServices/accounts@2024-06-01-preview' existing = if (aiService.exists) {
+  name: aiService.name
+  scope: resourceGroup(aiService.subscriptionId, aiService.resourceGroup)
+}
+
+module newCognitiveServices '../ai/cognitiveservices.bicep' = if (!aiService.exists) {
   name: 'cognitiveServices'
   params: {
     location: location
     tags: tags
-    name: openAiName
+    name: aiService.name
     kind: 'AIServices'
     deployments: openAiModelDeployments
   }
 }
 
-module searchService '../search/search-services.bicep' =
-  if (!empty(searchServiceName)) {
-    name: 'searchService'
-    params: {
-      location: location
-      tags: tags
-      name: searchServiceName
+resource existingSearchService 'Microsoft.Search/searchServices@2024-06-01-preview' existing = if (searchService.exists) {
+  name: searchService.name
+  scope: resourceGroup(searchService.subscriptionId, searchService.resourceGroup)
+}
+
+module newSearchService '../search/search-services.bicep' = if (!searchService.exists) {
+  name: 'searchService'
+  params: {
+    location: location
+    tags: tags
+    name: searchService.name
+    sku: {
+      name: 'free'
     }
   }
+}
 
-output keyVaultId string = keyVault.outputs.id
-output keyVaultName string = keyVault.outputs.name
-output keyVaultEndpoint string = keyVault.outputs.endpoint
+module outputKeyVault '../../parseOptionalResource.bicep' = {
+  name: 'outputKeyVault'
+  params: {
+    resourceId: keyVault.exists ? existingKeyVault.id : newKeyVault.outputs.id
+  }
+}
 
-output storageAccountId string = storageAccount.outputs.id
-output storageAccountName string = storageAccount.outputs.name
+output keyVaultId string = keyVault.exists ? existingKeyVault.id : newKeyVault.outputs.id
+output keyVaultName string = keyVault.exists ? existingKeyVault.name : newKeyVault.outputs.name
+output keyVaultEndpoint string = keyVault.exists ? existingKeyVault.properties.vaultUri : newKeyVault.outputs.endpoint
 
-output containerRegistryId string = !empty(containerRegistryName) ? containerRegistry.outputs.id : ''
-output containerRegistryName string = !empty(containerRegistryName) ? containerRegistry.outputs.name : ''
-output containerRegistryEndpoint string = !empty(containerRegistryName) ? containerRegistry.outputs.loginServer : ''
+output storageAccountId string = storageAccount.exists ? existingStorageAccount.id : newStorageAccount.outputs.id
+output storageAccountName string = storageAccount.exists ? existingStorageAccount.name : newStorageAccount.outputs.name
 
-output applicationInsightsId string = !empty(applicationInsightsName) ? applicationInsights.outputs.id : ''
-output applicationInsightsName string = !empty(applicationInsightsName) ? applicationInsights.outputs.name : ''
-output logAnalyticsWorkspaceId string = !empty(logAnalyticsName) ? logAnalytics.outputs.id : ''
-output logAnalyticsWorkspaceName string = !empty(logAnalyticsName) ? logAnalytics.outputs.name : ''
+output containerRegistryId string = containerRegistry.exists ? existingContainerRegistry.id : newContainerRegistry.outputs.id
+output containerRegistryName string = containerRegistry.exists ? existingContainerRegistry.name : newContainerRegistry.outputs.name
+output containerRegistryEndpoint string = containerRegistry.exists ? existingContainerRegistry.properties.loginServer : newContainerRegistry.outputs.loginServer
 
-output openAiId string = cognitiveServices.outputs.id
-output openAiName string = cognitiveServices.outputs.name
-output openAiEndpoint string = cognitiveServices.outputs.endpoints['OpenAI Language Model Instance API']
+output applicationInsightsId string = applicationInsights.exists ? existingApplicationInsights.id : newApplicationInsights.outputs.id
+output applicationInsightsName string = applicationInsights.exists ? existingApplicationInsights.name : newApplicationInsights.outputs.name
+output logAnalyticsWorkspaceId string = logAnalytics.exists ? existingLogAnalytics.id : newLogAnalytics.outputs.id
+output logAnalyticsWorkspaceName string = logAnalytics.exists ? existingLogAnalytics.name : newLogAnalytics.outputs.name
 
-output searchServiceId string = !empty(searchServiceName) ? searchService.outputs.id : ''
-output searchServiceName string = !empty(searchServiceName) ? searchService.outputs.name : ''
-output searchServiceEndpoint string = !empty(searchServiceName) ? searchService.outputs.endpoint : ''
+output openAiId string = aiService.exists ? existingCognitiveServices.id : newCognitiveServices.outputs.id
+output openAiName string = aiService.exists ? existingCognitiveServices.name : newCognitiveServices.outputs.name
+output openAiEndpoint string = aiService.exists ? existingCognitiveServices.properties.endpoints['OpenAI Language Model Instance API'] : newCognitiveServices.outputs.endpoint
+
+output searchServiceId string = searchService.exists ? existingSearchService.id : newSearchService.outputs.id
+output searchServiceName string = searchService.exists ? existingSearchService.name : newSearchService.outputs.name
+output searchServiceEndpoint string = searchService.exists ? 'https://${existingSearchService.name}.search.windows.net/' : newSearchService.outputs.endpoint
+
+output keyVault OptionalResource = outputKeyVault.outputs.existingResource

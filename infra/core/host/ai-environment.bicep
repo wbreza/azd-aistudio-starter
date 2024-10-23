@@ -1,58 +1,63 @@
+import { OptionalResource } from 'br:acrazdbicep.azurecr.io/bicep/types/common:v1'
+
+param resourceGroupName string
+
 @minLength(1)
 @description('Primary location for all resources')
 param location string
 
-@description('The AI Hub resource name.')
-param hubName string
-@description('The AI Project resource name.')
-param projectName string
-@description('The Key Vault resource name.')
-param keyVaultName string
-@description('The Storage Account resource name.')
-param storageAccountName string
-@description('The Open AI resource name.')
-param openAiName string
+param aiHub OptionalResource
+param aiProject OptionalResource
+param aiService OptionalResource
+param keyVault OptionalResource
+param storageAccount OptionalResource
+param applicationInsights OptionalResource
+param searchService OptionalResource
+param containerRegistry OptionalResource
+param logAnalytics OptionalResource
+
 @description('The Open AI connection name.')
 param openAiConnectionName string
+
 @description('The Open AI model deployments.')
 param openAiModelDeployments array = []
+
 @description('The Open AI content safety connection name.')
 param openAiContentSafetyConnectionName string
-@description('The Log Analytics resource name.')
-param logAnalyticsName string = ''
-@description('The Application Insights resource name.')
-param applicationInsightsName string = ''
-@description('The Container Registry resource name.')
-param containerRegistryName string = ''
-@description('The Azure Search resource name.')
-param searchServiceName string = ''
+
 @description('The Azure Search connection name.')
 param searchConnectionName string = ''
 param tags object = {}
 
 module hubDependencies '../ai/hub-dependencies.bicep' = {
   name: 'hubDependencies'
+  scope: resourceGroup(resourceGroupName)
   params: {
     location: location
     tags: tags
-    keyVaultName: keyVaultName
-    storageAccountName: storageAccountName
-    containerRegistryName: containerRegistryName
-    applicationInsightsName: applicationInsightsName
-    logAnalyticsName: logAnalyticsName
-    openAiName: openAiName
+    keyVault: keyVault
+    storageAccount: storageAccount
+    containerRegistry: containerRegistry
+    applicationInsights: applicationInsights
+    logAnalytics: logAnalytics
+    aiService: aiService
     openAiModelDeployments: openAiModelDeployments
-    searchServiceName: searchServiceName
+    searchService: searchService
   }
 }
 
-module hub '../ai/hub.bicep' = {
+resource existingHub 'Microsoft.MachineLearningServices/workspaces@2024-01-01-preview' existing = if (aiHub.exists) {
+  name: aiHub.name
+  scope: resourceGroup(aiHub.subscriptionId, aiHub.resourceGroup)
+}
+
+module hub '../ai/hub.bicep' = if (!aiHub.exists) {
   name: 'hub'
   params: {
     location: location
     tags: tags
-    name: hubName
-    displayName: hubName
+    name: aiHub.name
+    displayName: aiHub.name
     keyVaultId: hubDependencies.outputs.keyVaultId
     storageAccountId: hubDependencies.outputs.storageAccountId
     containerRegistryId: hubDependencies.outputs.containerRegistryId
@@ -65,13 +70,18 @@ module hub '../ai/hub.bicep' = {
   }
 }
 
-module project '../ai/project.bicep' = {
+resource existingProject 'Microsoft.MachineLearningServices/workspaces@2024-01-01-preview' existing = if (aiProject.exists) {
+  name: aiProject.name
+  scope: resourceGroup(aiProject.subscriptionId, aiProject.resourceGroup)
+}
+
+module project '../ai/project.bicep' = if (!aiProject.exists) {
   name: 'project'
   params: {
     location: location
     tags: tags
-    name: projectName
-    displayName: projectName
+    name: aiProject.name
+    displayName: aiProject.name
     hubName: hub.outputs.name
     keyVaultName: hubDependencies.outputs.keyVaultName
   }
@@ -82,12 +92,12 @@ module project '../ai/project.bicep' = {
 output resourceGroupName string = resourceGroup().name
 
 // Hub
-output hubName string = hub.outputs.name
-output hubPrincipalId string = hub.outputs.principalId
+output hubName string = aiHub.exists ? aiHub.name : hub.outputs.name
+output hubPrincipalId string = aiHub.exists ? existingHub.identity.principalId : hub.outputs.principalId
 
 // Project
-output projectName string = project.outputs.name
-output projectPrincipalId string = project.outputs.principalId
+output projectName string = aiProject.exists ? aiProject.name : project.outputs.name
+output projectPrincipalId string = aiProject.exists ? existingProject.identity.principalId : project.outputs.principalId
 
 // Key Vault
 output keyVaultName string = hubDependencies.outputs.keyVaultName
@@ -111,3 +121,26 @@ output openAiEndpoint string = hubDependencies.outputs.openAiEndpoint
 // Search
 output searchServiceName string = hubDependencies.outputs.searchServiceName
 output searchServiceEndpoint string = hubDependencies.outputs.searchServiceEndpoint
+
+module outputHub '../../parseOptionalResource.bicep' = {
+  name: 'outputHub'
+  scope: aiHub.exists ? resourceGroup(aiHub.subscriptionId, aiHub.resourceGroup) : resourceGroup(resourceGroupName)
+  params: {
+    location: resourceGroup().location
+    resourceId: aiHub.exists ? existingHub.id : hub.outputs.id
+  }
+}
+
+module outputProject '../../parseOptionalResource.bicep' = {
+  name: 'outputProject'
+  scope: aiProject.exists ? resourceGroup(aiProject.subscriptionId, aiProject.resourceGroup) : resourceGroup(resourceGroupName)
+  params: {
+    location: resourceGroup().location
+    resourceId: aiProject.exists ? existingProject.id : project.outputs.id
+  }
+}
+
+output aiHub OptionalResource = outputHub.outputs.existingResource
+output aiProject OptionalResource = outputProject.outputs.existingResource
+output keyVault OptionalResource = hubDependencies.outputs.keyVault
+

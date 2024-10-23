@@ -1,5 +1,7 @@
 targetScope = 'subscription'
 
+import { OptionalResource } from 'br:acrazdbicep.azurecr.io/bicep/types/common:v1'
+
 @minLength(1)
 @maxLength(64)
 @description('Name of the the environment which is used to generate a short unique hash used in all resources.')
@@ -9,45 +11,141 @@ param environmentName string
 @description('Primary location for all resources')
 param location string
 
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'AI Studio Hub'
+      description: 'The AI Studio Hub resource'
+      type: 'Microsoft.MachineLearningServices/workspaces'
+      kind: ['Hub']
+    }
+  }
+})
+param aiHub OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'AI Studio Project'
+      description: 'The AI Studio Project resource'
+      type: 'Microsoft.MachineLearningServices/workspaces'
+      kind: ['Project']
+    }
+  }
+})
+param aiProject OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Azure AI Service'
+      description: 'The Azure AI Service'
+      type: 'Microsoft.CognitiveServices/accounts'
+      kind: ['OpenAI', 'AIServices']
+    }
+  }
+})
+param aiService OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Key Vault'
+      description: 'The Azure Key Vault resource'
+      type: 'Microsoft.KeyVault/vaults'
+    }
+  }
+})
+param keyVault OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Storage Account'
+      description: 'The Azure Storage Account resource'
+      type: 'Microsoft.Storage/storageAccounts'
+    }
+  }
+})
+param storageAccount OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Application Insights'
+      description: 'The Application Insights resource'
+      type: 'Microsoft.Insights/components'
+    }
+  }
+})
+param applicationInsights OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Azure Search'
+      description: 'The Azure Search resource'
+      type: 'Microsoft.Search/searchServices'
+    }
+  }
+})
+param searchService OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Azure Container Registry'
+      description: 'The Azure Container Registry resource'
+      type: 'Microsoft.ContainerRegistry/registries'
+    }
+  }
+})
+param containerRegistry OptionalResource
+
+@metadata({
+  azd: {
+    type: 'resource'
+    resource: {
+      displayName: 'Log Analytics Workspace'
+      description: 'The Log Analytics Workspace resource'
+      type: 'Microsoft.OperationalInsights/workspaces'
+    }
+  }
+})
+param logAnalytics OptionalResource
+
 @description('The Azure resource group where new resources will be deployed')
 param resourceGroupName string = ''
-@description('The Azure AI Studio Hub resource name. If ommited will be generated')
-param aiHubName string = ''
-@description('The Azure AI Studio project name. If ommited will be generated')
-param aiProjectName string = ''
-@description('The application insights resource name. If ommited will be generated')
-param applicationInsightsName string = ''
-@description('The Open AI resource name. If ommited will be generated')
-param openAiName string = ''
+
 @description('The Open AI connection name. If ommited will use a default value')
 param openAiConnectionName string = ''
+
 @description('The Open AI content safety connection name. If ommited will use a default value')
 param openAiContentSafetyConnectionName string = ''
-@description('The Azure Container Registry resource name. If ommited will be generated')
-param containerRegistryName string = ''
-@description('The Azure Key Vault resource name. If ommited will be generated')
-param keyVaultName string = ''
-@description('The Azure Search resource name. If ommited will be generated')
-param searchServiceName string = ''
+
 @description('The Azure Search connection name. If ommited will use a default value')
 param searchConnectionName string = ''
-@description('The Azure Storage Account resource name. If ommited will be generated')
-param storageAccountName string = ''
-@description('The log analytics workspace name. If ommited will be generated')
-param logAnalyticsWorkspaceName string = ''
+
 @description('The name of the machine learning online endpoint. If ommited will be generated')
 param endpointName string = ''
+
 @description('Id of the user or app to assign application roles')
 param principalId string = ''
+
 @description('The type of the principal to assign application roles')
 @allowed(['Device', 'ForeignGroup', 'Group', 'ServicePrincipal', 'User'])
 param principalType string = 'User'
+
 @description('The name of the azd service to use for the machine learning endpoint')
 param endpointServiceName string = 'chat'
-
-param useContainerRegistry bool = true
-param useApplicationInsights bool = true
-param useSearch bool = true
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -63,39 +161,26 @@ resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
 
 module ai 'core/host/ai-environment.bicep' = {
   name: 'ai'
-  scope: rg
+  scope: aiProject.exists ? resourceGroup(aiProject.subscriptionId, aiProject.resourceGroup) : rg
   params: {
+    resourceGroupName: rg.name
     location: location
     tags: tags
-    hubName: !empty(aiHubName) ? aiHubName : 'ai-hub-${resourceToken}'
-    projectName: !empty(aiProjectName) ? aiProjectName : 'ai-project-${resourceToken}'
-    keyVaultName: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
-    storageAccountName: !empty(storageAccountName)
-      ? storageAccountName
-      : '${abbrs.storageStorageAccounts}${resourceToken}'
-    openAiName: !empty(openAiName) ? openAiName : 'aoai-${resourceToken}'
+    aiHub: aiHub
+    aiProject: aiProject
+    keyVault: keyVault
+    storageAccount: storageAccount
+    aiService: aiService
     openAiConnectionName: !empty(openAiConnectionName) ? openAiConnectionName : 'aoai-connection'
     openAiContentSafetyConnectionName: !empty(openAiContentSafetyConnectionName)
       ? openAiContentSafetyConnectionName
       : 'aoai-content-safety-connection'
-    openAiModelDeployments: array(contains(aiConfig, 'deployments') ? aiConfig.deployments : [])
-    logAnalyticsName: !useApplicationInsights
-      ? ''
-      : !empty(logAnalyticsWorkspaceName)
-          ? logAnalyticsWorkspaceName
-          : '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
-    applicationInsightsName: !useApplicationInsights
-      ? ''
-      : !empty(applicationInsightsName) ? applicationInsightsName : '${abbrs.insightsComponents}${resourceToken}'
-    containerRegistryName: !useContainerRegistry
-      ? ''
-      : !empty(containerRegistryName) ? containerRegistryName : '${abbrs.containerRegistryRegistries}${resourceToken}'
-    searchServiceName: !useSearch
-      ? ''
-      : !empty(searchServiceName) ? searchServiceName : '${abbrs.searchSearchServices}${resourceToken}'
-    searchConnectionName: !useSearch
-      ? ''
-      : !empty(searchConnectionName) ? searchConnectionName : 'search-service-connection'
+    openAiModelDeployments: aiConfig.?deployments
+    logAnalytics: logAnalytics
+    applicationInsights: applicationInsights
+    containerRegistry: containerRegistry
+    searchService: searchService
+    searchConnectionName: !empty(searchConnectionName) ? searchConnectionName : 'search-service-connection'
   }
 }
 
@@ -107,9 +192,9 @@ module machineLearningEndpoint './core/host/ml-online-endpoint.bicep' = {
     location: location
     tags: tags
     serviceName: endpointServiceName
-    aiHubName: ai.outputs.hubName
-    aiProjectName: ai.outputs.projectName
-    keyVaultName: ai.outputs.keyVaultName
+    aiHub: ai.outputs.aiHub
+    aiProject: ai.outputs.aiProject
+    keyVault: ai.outputs.keyVault
   }
 }
 

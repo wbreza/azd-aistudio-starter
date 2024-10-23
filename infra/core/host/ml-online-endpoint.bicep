@@ -1,11 +1,13 @@
+import { OptionalResource } from 'br:acrazdbicep.azurecr.io/bicep/types/common:v1'
+
 metadata description = 'Creates an Azure Container Registry.'
 param name string
 param serviceName string
 param location string = resourceGroup().location
 param tags object = {}
-param aiProjectName string
-param aiHubName string
-param keyVaultName string
+param aiProject OptionalResource
+param aiHub OptionalResource
+param keyVault OptionalResource
 param kind string = 'Managed'
 param authMode string = 'Key'
 
@@ -25,20 +27,20 @@ resource endpoint 'Microsoft.MachineLearningServices/workspaces/onlineEndpoints@
 
 var azureMLDataScientist = resourceId('Microsoft.Authorization/roleDefinitions', 'f6c7c914-8db3-469d-8ca1-694a8f32e121')
 
-resource azureMLDataScientistRoleHub 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, resourceGroup().id, aiHubName, name, azureMLDataScientist)
-  scope: hubWorkspace
-  properties: {
+module azureMLDataScientistRoleHub '../security/role.bicep' = {
+  name: guid(subscription().id, resourceGroup().id, aiHub.name, name, azureMLDataScientist)
+  scope: resourceGroup(aiHub.subscriptionId, aiHub.resourceGroup)
+  params: {
     principalId: endpoint.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: azureMLDataScientist
   }
 }
 
-resource azureMLDataScientistRoleWorkspace 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, resourceGroup().id, aiProjectName, name, azureMLDataScientist)
-  scope: workspace
-  properties: {
+module azureMLDataScientistRoleWorkspace '../security/role.bicep' = {
+  name: guid(subscription().id, resourceGroup().id, aiProject.name, name, azureMLDataScientist)
+  scope: resourceGroup(aiProject.subscriptionId, aiProject.resourceGroup)
+  params: {
     principalId: endpoint.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: azureMLDataScientist
@@ -51,7 +53,7 @@ var azureMLWorkspaceConnectionSecretsReader = resourceId(
 )
 
 resource azureMLWorkspaceConnectionSecretsReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, resourceGroup().id, aiProjectName, name, azureMLWorkspaceConnectionSecretsReader)
+  name: guid(subscription().id, resourceGroup().id, aiProject.name, name, azureMLWorkspaceConnectionSecretsReader)
   scope: endpoint
   properties: {
     principalId: endpoint.identity.principalId
@@ -62,18 +64,15 @@ resource azureMLWorkspaceConnectionSecretsReaderRole 'Microsoft.Authorization/ro
 
 module keyVaultAccess '../security/keyvault-access.bicep' = {
   name: '${name}-keyvault-access'
+  scope: resourceGroup(keyVault.subscriptionId, keyVault.resourceGroup)
   params: {
-    keyVaultName: keyVaultName
+    keyVaultName: keyVault.name
     principalId: endpoint.identity.principalId
   }
 }
 
-resource hubWorkspace 'Microsoft.MachineLearningServices/workspaces@2023-08-01-preview' existing = {
-  name: aiHubName
-}
-
 resource workspace 'Microsoft.MachineLearningServices/workspaces@2023-08-01-preview' existing = {
-  name: aiProjectName
+  name: aiProject.name
 }
 
 output name string = endpoint.name
